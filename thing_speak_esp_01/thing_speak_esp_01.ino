@@ -17,7 +17,7 @@ boolean newData = false;
 
 /* Set these to your desired credentials. */
 const char *ssid = "Xia_n2";  //ENTER YOUR WIFI SETTINGS <<<<<<<<<
-const char *password = "Envi32Envi32";
+const char *password = "Envi_32Envi_32";
 
 //Web address to read from
 const char *host = "api.thingspeak.com";
@@ -74,14 +74,12 @@ void loop() {
     showNewData();
     //showNewData();
     strMessageFromCOM = "";
-  }
+  
 //---------------------------------------------------------------------
   //Make GET request as pet HTTP GET Protocol format
   String ADCData;
-  int adcvalue=analogRead(A0);  //Read Analog value of LDR
-  ADCData = String(adcvalue);   //String to interger conversion
-  String Link="GET /update?api_key="+apiKey+"&field1=";  //Requeste webpage  
-  Link = Link + ADCData;
+  ADCData = String(Co2);   //String to interger conversion
+  String Link="GET /update?api_key="+apiKey+"&field1=" + Co2 + "&field2=" + PM2_5 + "&field3=" + PM10 + "&field4=" + Pres + "&field5=" + Temp + "&field6=" + Hum;  //Requeste webpage  
   Link = Link + " HTTP/1.1\r\n" + "Host: " + host + "\r\n" + "Connection: close\r\n\r\n";                
   client.print(Link);
   delay(100);
@@ -109,6 +107,7 @@ void loop() {
  }
 
  delay(5000);  //Read Web Page every 5 seconds
+ }
 }
 //=======================================================================
 
