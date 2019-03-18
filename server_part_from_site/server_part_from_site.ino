@@ -2,44 +2,51 @@
 
 #include<EthernetClient.h> //Uncomment this library to work with ESP8266
 #include<ESP8266WiFi.h> //Uncomment this library to work with ESP8266
+
+//объявление параметров для датчиков
+//---------------------------------------------------------------------
+
 #include <Wire.h>
 #include <SDS011.h>
 float p10, p25;
-#define pwmPin D8
+#define pwmPin D8 // пин для приема уровня СО2
 
-SDS011 my_sds;
+SDS011 my_sds; 
 
 long th, tl, h, l, ppm;
-int indDelaySecs, error;
-int indDelayWork = 0;
+int error;
 
-#include<SPI.h> // Comment this to work with ESP8266 board
-//#include<WiFi101.h> // Comment this to work with ESP8266 board
+//примитивный подсчет времени
+//---------------------------------------------------------------------
+int indDelaySecs;
+int indDelayWork = 0;
+//=======================================================================
+
+//#include<SPI.h> // Comment this to work with ESP8266 board
 
 char jsonBuffer[500] = "["; // Initialize the jsonBuffer to hold data
-char zapataja[] = ",";
 
-char ssid[] = "Xia_n2"; //  Your network SSID (name)
+char ssid[] = "D-Link_I"; //  Your network SSID (name)
 
-char pass[] = "Envi_32Envi_32"; // Your network password
+char pass[] = "125896347gerda"; // Your network password
 WiFiClient client; // Initialize the WiFi client library
 
 char server[] = "api.thingspeak.com"; // ThingSpeak Server
 
-String strMessageFromCOM, Co2, PM2_5, PM10, Temp, Hum, Pres, valueField, fieldVALUE;
-boolean newData = false;
+String Co2, PM2_5, PM10, Temp, Hum, Pres, valueField, fieldVALUE;
 
-/* Collect data once every 15 seconds and post data to ThingSpeak channel once every 2 minutes */
-unsigned long lastConnectionTime = 0; // Track the last connection time
-unsigned long lastUpdateTime = 0; // Track the last update time
-const unsigned long postingInterval = 120L * 1000L; // Post data every 2 minutes
-const unsigned long updateInterval = 15L * 1000L; // Update once every 15 seconds
+/** Collect data once every 15 seconds and post data to ThingSpeak channel once every 2 minutes */
+//unsigned long lastConnectionTime = 0; // Track the last connection time
+//unsigned long lastUpdateTime = 0; // Track the last update time
+//const unsigned long postingInterval = 120L * 1000L; // Post data every 2 minutes
+//const unsigned long updateInterval = 15L * 1000L; // Update once every 15 seconds
+
 
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
   Wire.begin();
-  my_sds.begin(D6, D7);
+  my_sds.begin(D6, D7); // begin(uint8_t pin_rx, uint8_t pin_tx);
 
   Serial.begin(115200);
   // Attempt to connect to WiFi network
@@ -56,13 +63,6 @@ void setup() {
 
 void loop() {
 
-  /**recvWithEndMarker();
-    if (getValue(strMessageFromCOM, ':', 0) == "Arduino")
-    {
-    showNewData();
-    strMessageFromCOM = "";
-    }**/
-
   if (indDelayWork <= 200000)
   {
     indDelayWork++;
@@ -73,7 +73,13 @@ void loop() {
     //Serial.println("indDelayWork: " + String(indDelaySecs));
   }
 
-  if (indDelaySecs == 600)
+  if (indDelaySecs == 45)
+  {
+    my_sds.wakeup();
+  }
+  
+
+  if (indDelaySecs == 60)
   {
     indDelaySecs = 0;
     error = my_sds.read(&p25, &p10);
@@ -86,6 +92,8 @@ void loop() {
       p25 = 0;
       p10 = 0;
     }
+
+    my_sds.sleep();
 
     long tt = millis();
 
@@ -105,7 +113,6 @@ void loop() {
 
     updatesJson(jsonBuffer);
   }
-
 }
 
 // Updates the jsonBuffer with data
@@ -116,7 +123,6 @@ void updatesJson(char* jsonBuffer) {
     instead of "delta_t".
     "[{\"delta_t\":0,\"field1\":-70},{\"delta_t\":15,\"field1\":-66}]"
   */
-
   // Format the jsonBuffer as noted above
   strcat(jsonBuffer, "{\"delta_t\":");
   unsigned long deltaT = 0;
@@ -126,7 +132,7 @@ void updatesJson(char* jsonBuffer) {
   strcat(jsonBuffer, temp);
   strcat(jsonBuffer, ",");
 
-  for (int i = 0; i <= 2; i++) {
+  for (int i = 0; i <= 2; i++) { // формирую длинный запрос
 
     switch (i) {
       case 0:    // your hand is on the sensor
@@ -145,27 +151,17 @@ void updatesJson(char* jsonBuffer) {
     //[{"delta_t":0,"field1":370},{"delta_t":0,"field2":0.00},{"delta_t":0,"field3":0.00}]}
 
 
-    lengthT = valueField.length();
+    lengthT = valueField.length(); // шаблон формируется в switch
     valueField.toCharArray(temp, lengthT + 1);
     strcat(jsonBuffer, temp);
 
-    lengthT = fieldVALUE.length();
+    lengthT = fieldVALUE.length(); // шаблон формируется в switch
     fieldVALUE.toCharArray(temp, lengthT + 1);
     strcat(jsonBuffer, temp);
   }
   strcat(jsonBuffer, "}]");
 
-
-  // If posting interval time has reached 2 minutes, then update the ThingSpeak channel with your data
-  //if (millis() - lastConnectionTime >=  postingInterval) {
-  //size_t len = strlen(jsonBuffer);
- // jsonBuffer[len] = ']';
-
-  //jsonBuffer[0] = '['; // Reinitialize the jsonBuffer for next batch of data
-  //jsonBuffer[1] = '\0';
-  httpRequest(jsonBuffer);
-  //}
-  //lastUpdateTime = millis(); // Update the last update time
+  httpRequest(jsonBuffer); // отправляю запрос на сервак
 }
 
 // Updates the ThingSpeakchannel with data
@@ -203,7 +199,7 @@ void httpRequest(char* jsonBuffer) {
   Serial.println("Response code:" + resp); // Print the response code. 202 indicates that the server has accepted the response
   jsonBuffer[0] = '['; // Reinitialize the jsonBuffer for next batch of data
   jsonBuffer[1] = '\0';
-  lastConnectionTime = millis(); // Update the last connection time
+  //  lastConnectionTime = millis(); // Update the last connection time
 }
 
 void printWiFiStatus() {
@@ -222,53 +218,3 @@ void printWiFiStatus() {
   Serial.print(rssi);
   Serial.println(" dBm");
 }
-
-//=======================================================================
-
-//---------------------------------------------------------------------
-//recieving data functions
-/**void recvWithEndMarker()
-  {
-  String str = "";
-
-  if (Serial.available() > 0) {
-    //Serial.println("Arduino getting string... " +  String(newData));
-    strMessageFromCOM = Serial.readStringUntil('\n');
-    delay(10);
-    newData = true;
-    Serial.print("Полученны данные с COM порта... отправляю на сервер...");
-  }
-  }
-
-  void showNewData() {
-  if (newData == true) {
-    //Serial.println("ESP answer... ");
-    //Arduino:890:5:6:25:60:990
-    Co2 = getValue(strMessageFromCOM, ':', 1);
-    PM2_5 = getValue(strMessageFromCOM, ':', 2);
-    PM10 = getValue(strMessageFromCOM, ':', 3);
-    Temp = getValue(strMessageFromCOM, ':', 4);
-    Hum = getValue(strMessageFromCOM, ':', 5);
-    Pres = getValue(strMessageFromCOM, ':', 6);
-
-    //Serial.println(getValue(strMessageFromCOM, ':', 3));
-    newData = false;
-  }
-  }
-
-  String getValue(String data, char separator, int index)
-  {
-  int found = 0;
-  int strIndex[] = { 0, -1 };
-  int maxIndex = data.length() - 1;
-
-  for (int i = 0; i <= maxIndex && found <= index; i++) {
-    if (data.charAt(i) == separator || i == maxIndex) {
-      found++;
-      strIndex[0] = strIndex[1] + 1;
-      strIndex[1] = (i == maxIndex) ? i + 1 : i;
-    }
-  }
-  return found > index ? data.substring(strIndex[0], strIndex[1]) : "0";
-  }**/
-//=======================================================================
