@@ -3,6 +3,7 @@
 #include<EthernetClient.h> //Uncomment this library to work with ESP8266
 #include<ESP8266WiFi.h> //Uncomment this library to work with ESP8266
 #include <ESP8266WebServer.h>
+#include <ESP8266mDNS.h>
 #include <EEPROM.h>
 
 //объявление параметров для датчиков
@@ -24,6 +25,8 @@ ESP8266WebServer _server(80);
 String ssidAP, passwordAP, content, ssid_login, ssid_password, passwordChanged, adminpasswordChanged, modeAP_RP_global, globalRP_IP, Co2_status, Co2_text_color, esid, epass;
 String st, standartStrHtml, standartStrHtmlEnd;
 bool clearEepromHttpAnswer, connectedToWiFiSsid, globalIP_status_Connection;
+int wifiConnectingTry = 0;
+
 //примитивный подсчет времени
 //---------------------------------------------------------------------
 int indDelaySecs;
@@ -34,10 +37,11 @@ int indDelayWork = 0;
 
 char jsonBuffer[500] = "["; // Initialize the jsonBuffer to hold data
 
-char ssid[] = "Xia_n2"; //  Your network SSID (name)
+//char ssid[] = "Xia_n2"; //  Your network SSID (name)
 
-char pass[] = "Envi_32Envi_32"; // Your network password
+//char pass[] = "Envi_32Envi_32"; // Your network password
 WiFiClient client; // Initialize the WiFi client library
+IPAddress myIP = WiFi.softAPIP();
 
 char server[] = "api.thingspeak.com"; // ThingSpeak Server
 
@@ -56,70 +60,138 @@ void setup() {
 
   EEPROM.begin(512);
   Serial.print("Writing EEPROM... ");
-  //writeEEPROM("admin", "admin", "Xia_n2", "Envi_32Envi_32", "airDeviceTester", "Password", "AP");
+  //writeEEPROM("admin", "admin", "Xia_n2", "Envi_32Envi_32", "airDeviceTester", "123456789", "Station"); //AP
 
   Wire.begin();
   my_sds.begin(D7, D6); // begin(uint8_t pin_rx, uint8_t pin_tx);
 
   Serial.begin(115200);
 
+  standartStr();
+  modeAP_RP_global = "AP";//EEPROM_ESP8266_READ(192, 224);
 
-  if (EEPROM_ESP8266_READ(192, 224) == "RP")
+
+  if (modeAP_RP_global == "Station")
   {
     esid = EEPROM_ESP8266_READ(64, 96);
     epass = EEPROM_ESP8266_READ(96, 128);
 
-    Serial.println("Установлен режим RP");
+    Serial.println("Установлен режим Station...");
 
-    if ( esid.length() > 1 ) {
-      WiFi.begin(esid.c_str(), epass.c_str());
-      if (testWifi(esid)) {
-        Serial.println("Connected to wifi");
-        digitalWrite(LED_BUILTIN, HIGH);
-        printWiFiStatus(); // Print WiFi connection information
-        launchWeb(0);
-        return;
-      }
+    // Attempt to connect to WiFi network
+    while (WiFi.status() != WL_CONNECTED || wifiConnectingTry == 10) {
+      wifiConnectingTry++;
+      Serial.print("Attempting to connect to SSID: ");
+      Serial.println(esid);
+      WiFi.mode(WIFI_STA);
+      WiFi.begin(esid.c_str(), epass.c_str());  // Connect to WPA/WPA2 network. Change this line if using open or WEP network
+      delay(10000);  // Wait 10 seconds to connect
     }
-  }
-  ssidAP = EEPROM_ESP8266_READ(128, 160);
-  passwordAP = EEPROM_ESP8266_READ(160, 192);
-  setupAP(true);
+    digitalWrite(LED_BUILTIN, HIGH);
 
-  /**
-  // Attempt to connect to WiFi network
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print("Attempting to connect to SSID: ");
-    Serial.println(ssid);
-    WiFi.begin(ssid, pass);  // Connect to WPA/WPA2 network. Change this line if using open or WEP network
-    delay(10000);  // Wait 10 seconds to connect
+    if (MDNS.begin("esp8266")) {
+      Serial.println("MDNS responder started");
+    }
+
+    _server.on("/", handleRoot);
+
+    _server.begin();
+    Serial.println("HTTP server started");
+
+    //launchWeb(1);
   }
-  **/
+  if (modeAP_RP_global == "AP" || wifiConnectingTry  == 10)
+  {
+    wifiConnectingTry = 0;
+    ssidAP = EEPROM_ESP8266_READ(128, 160);
+    //passwordAP = EEPROM_ESP8266_READ(160, 192);
+    Serial.print("Creating Station with name-SSID: ");
+    Serial.println(ssidAP);
+
+    WiFi.softAP(ssidAP.c_str());
+    Serial.println("softap");
+    printWiFiStatus();
+    connectedToWiFiSsid = true;
+    digitalWrite(LED_BUILTIN, HIGH);
+
+    
+    Serial.print("AP IP address: ");
+    Serial.println(myIP);
+
+    _server.on("/", handleRoot);
+    _server.on("/changeSsidPage", changeApSsid);
+    _server.begin();
+    Serial.println("HTTP server started");
+    //launchWeb(1);
+  }
 }
 
-bool testWifi(String _ssid)
-{
-  int c = 0;
-  Serial.println("Check for WiFi connected...");
-  while ( c < 10 ) {
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("Connected to WiFi network - " + _ssid);
-      return true;
-    }
-    delay(4000);
-    //Serial.print(WiFi.status());
-    c++;
+void loop() {
+
+  _server.handleClient();
+
+  if (indDelayWork <= 200000)
+  {
+    indDelayWork++;
+  } else
+  {
+    indDelaySecs++;
+    indDelayWork = 0;
+    Serial.println("indDelayWork: " + String(indDelaySecs));
   }
-  Serial.println("");
-  Serial.println("Подключение RP неустановлено.");
-  return false;
+
+  if (my_sds_onoff && indDelaySecs == 2)
+  {
+    my_sds.wakeup();
+  }
+
+
+  if (indDelaySecs == 6)
+  {
+    //showEEPROM();
+    my_sds_onoff = true;
+    indDelaySecs = 0;
+    error = my_sds.read(&p25, &p10);
+    if (! error) {
+      Serial.println("P2.5: " + String(p25));
+      Serial.println("P10:  " + String(p10));
+      PM2_5 = p25;
+      PM10 = p10;
+    } else
+    {
+      Serial.println("P2.5: error");
+      p25 = 0;
+      p10 = 0;
+    }
+
+    my_sds.sleep();
+
+    long tt = millis();
+
+    //CO2 via pwm
+    do
+    {
+      th = pulseIn(pwmPin, HIGH, 1004000) / 1000;
+      tl = 1004 - th;
+      //ppm2 = 2000 * (th-2)/(th+tl-4);
+      ppm = 5000 * (th - 2) / (th + tl - 4);
+      ppm = constrain(ppm, 350, 5000);
+    } while (th == 0);
+    Serial.println("Co2:" + String(ppm));
+    Co2 = ppm;
+
+
+    // If update time has reached 15 seconds, then update the jsonBuffer
+
+    updatesJson(jsonBuffer);
+  }
 }
 
 void launchWeb(int webtype) {
   ////Serial.println("");
-  ////Serial.println("WiFi connected");
-  //Serial.print("Local IP: ");
-  //Serial.println(WiFi.localIP());
+  Serial.println("WiFi connected");
+  Serial.print("Local IP: ");
+  Serial.println(WiFi.localIP());
   //Serial.print("SoftAP IP: ");
 
   //Serial.println(WiFi.softAPIP());
@@ -128,7 +200,7 @@ void launchWeb(int webtype) {
   createWebServer(webtype);
   // Start the server
   _server.begin();
-  //Serial.println("Server started");
+  Serial.println("Server started");
 }
 
 void setupAP(bool sta) {
@@ -176,11 +248,11 @@ void setupAP(bool sta) {
   }
   st += "</ol>";
   delay(100);
-  WiFi.softAP(ssidAP.c_str(), passwordAP.c_str(), 6);
-  Serial.println("softap");
-  printWiFiStatus();
-  connectedToWiFiSsid = true;
-  launchWeb(1);
+  /**WiFi.softAP(ssidAP.c_str(), passwordAP.c_str(), 6);
+    Serial.println("softap");
+    printWiFiStatus();
+    connectedToWiFiSsid = true;
+    launchWeb(1);**/
   //Serial.println("over");
 }
 
@@ -188,11 +260,12 @@ void createWebServer(int webtype)
 {
   if ( webtype == 1 ) {
     _server.on("/", handleRoot);
+    _server.onNotFound(handleNotFound);
     //clearEepromHttpAnswer = true; // выдать сообщение после очистки памяти EEPROM
     //server.on("/cleareeprom", clearEeprom);
     //server.on("/getIP_RPPage", getIP_RPPage);
 
-    //server.on("/changeSsidPage", changeApSsid);
+    _server.on("/changeSsidPage", changeApSsid);
 
     //server.on("/setup", setupESP);
     //server.on("/adminAsk", adminAsk);
@@ -210,28 +283,101 @@ void createWebServer(int webtype)
   }
 }
 
+void standartStr()
+{
+  standartStrHtml =
+    "<!doctype html><html><head>\r\n"
+    "<style>.ssids{color:black;padding:5px;border-radius:0.5rem;background-color:#C0C0C0;line-height:1.4rem;font-size:1.2rem;width:25%;}\r\n"
+    ".button{text-decoration:none;text-align:center;padding:11px 32px;border:solid 1px #004f72;-webkit-border-radius:4px;-moz-border-radius:4px;border-radius:4px;font:18px Arial,Helvetica,sans-serif;font-weight:bold;color:#e5ffff;background-color:#3ba4c7;background-image:-moz-linear-gradient(top,#3BA4C7 0,#1982A5 100%);background-image:-webkit-linear-gradient(top,#3BA4C7 0,#1982A5 100%);background-image:-o-linear-gradient(top,#3BA4C7 0,#1982A5 100%);background-image:-ms-linear-gradient(top,#3BA4C7 0,#1982A5 100%);filter:progid:DXImageTransform.Microsoft.gradient(startColorstr='#1982A5',endColorstr='#1982A5',GradientType=0);background-image:linear-gradient(top,#3BA4C7 0,#1982A5 100%);-webkit-box-shadow:0 0 2px #bababa,inset 0 0 1px #fff;-moz-box-shadow:0 0 2px #bababa,inset 0 0 1px #fff;box-shadow:0 0 2px #bababa,inset 0 0 1px #fffwidth:40%;}\r\n"
+    ".button2{color:white;padding:10px;border:0;border-radius:0.5rem;background-color:#1fa3ec;color:#fff;line-height:2.4rem;font-size:1.2rem;width:30%;}</style>\r\n"
+    "<meta http-equiv=Content-type content=\"text/html;charset=utf-8\"/>\r\n"
+    "<title>AirDeviceTester page</title></head><body><a href=\"/\">Главная</a><a class=button2 href=\"/setup\" method=\"get\">Настройки</a><br><br>\r\n";
+
+  standartStrHtmlEnd =
+    "</form></body></html>\r\n";
+}
+
+bool testWifi(void) {
+  int c = 0;
+  Serial.println("Check for WiFi connected...");
+  while ( c < 10 ) {
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("Connected to WiFi network - " + EEPROM_ESP8266_READ(64, 96));
+      return true;
+    }
+    delay(1000);
+    //Serial.print(WiFi.status());
+    c++;
+  }
+  Serial.println("");
+  Serial.println("Подключение RP неустановлено.");
+  return false;
+}
+
+void setupESP()
+{
+  globalRP_IP = "Nan";
+  globalIP_status_Connection = false;
+  String modeString;
+  (modeAP_RP_global == "Station" && testWifi()) ? modeString = "<input class=button onClick='location.href=\"getIP_RPPage\"' method=\"get\" type=submit class=button2 margin-left=10 value=\"Получить IP >>\">\r\n" : modeString = "";
+
+  String setupHtml = standartStrHtml +
+                     "<div class=flex><div class>\r\n"
+                     "<input onClick='location.href=\"changeSsidPage\"' method=\"get\" type=submit class=button value=\"Смена точки доступа WiFi\"><p><p/>\r\n"
+                     "<input onClick='location.href=\"ask_for_changeAP_RP_mode\"' method=\"get\" type=submit class=button value=\"Смена режима WiFi устройства\" >\r\n" + modeString + "<p><p/>\r\n"
+                     "<input onClick='location.href=\"changeAdminPage\"' method=\"get\" type=submit class=button value=\"Смена пароля администратора\"></div></div>\r\n" + standartStrHtmlEnd;
+  passwordChanged = "0";
+
+  //modeAP_RP_global
+
+  _server.send(200, "text/html", setupHtml);
+}
+
+void changeApSsid()
+{
+  setupAP(false);
+
+  String settingsHtml = standartStrHtml +
+                        "<h2>Выберите точку доступа из списка (просто кликните по ней):</h2>\r\n";
+
+  content = "";
+
+  //IPAddress ip = WiFi.softAPIP();
+  //String ipStr = String(ip[0]) + '.' + String(ip[1]) + '.' + String(ip[2]) + '.' + String(ip[3]);
+  content += settingsHtml;
+  content += "<p>";
+  content += st;
+  content += "</p><form method='get' action='adminAsk'><input id='ssid' name='ssid' length=32 placeholder='Имя точки доступа'><input name='pass' length=64 placeholder='Пароль'><input type='submit'></form>";
+  content += "<script> function myfunction(ctrl){document.getElementById(\"ssid\").value = ctrl.getElementsByTagName('a')[0].innerHTML;}</script>";
+  content += "</body></html>";
+  _server.send(200, "text/html", content);
+}
+
 void handleRoot()
 {
-  //Arduino:890:5:6:25:60:990
-  Co2_status = "";
-  if (Co2.toFloat() >= 601 && Co2.toFloat() <= 800) {
+  Serial.print("Показываю окно в браузере...");
+  
+    //Arduino:890:5:6:25:60:990
+    Co2_status = "";
+    if (Co2.toFloat() >= 601 && Co2.toFloat() <= 800) {
     Co2_status = "Yellow";
     Co2_text_color = "black";
-  }
-  if (Co2.toFloat() >= 801 && Co2.toFloat() <= 900) {
+    }
+    if (Co2.toFloat() >= 801 && Co2.toFloat() <= 900) {
     Co2_status = "Orange";
     Co2_text_color = "black";
-  }
-  if (Co2.toFloat() >= 901 && Co2.toFloat() <= 1201) {
+    }
+    if (Co2.toFloat() >= 901 && Co2.toFloat() <= 1201) {
     Co2_status = "Coral";
     Co2_text_color = "black";
-  }
-  if (Co2.toFloat() >= 1201) {
+    }
+    if (Co2.toFloat() >= 1201) {
     Co2_status = "DarkRed";
     Co2_text_color = "white";
-  }
-  Serial.print(Co2_status);
-  String file1 =
+    }
+    Serial.print(Co2_status);
+    /**
+    String file1 =
     "<!DOCTYPE html>\r\n"
     "<html>\r\n"
     "<head>\r\n"
@@ -271,74 +417,33 @@ void handleRoot()
     "</tr>\r\n"
     "</table>\r\n"
     "</body>\r\n"
-    "</html>\r\n";
+    "</html>\r\n";**/
 
-  _server.send(200, "text/html", file1);
+    String file1 = "<!DOCTYPE html><html><head>\r\n"
+                 "<style>.city{background-color:DarkGreen;color:white}.colorCo2{background-color:" +
+                 Co2_status + ";color:" + Co2_text_color + "}.button{color:white;padding:10px;border:0;border-radius:0.5rem;background-color:#1fa3ec;color:#fff;line-height:2.4rem;font-size:1.2rem;width:30%;}table{font-family:arial,sans-serif;border-collapse:collapse;width:60%}td,th{border:2px solid #ddd;text-align:center;padding:15px}tr:nth-child(even){background-color:#ddd}</style>\r\n"
+                 "<meta http-equiv=Content-type content=\"text/html; charset=utf-8\" />\r\n"
+                 "</head><body><a class=button>Главная</a>\r\n"
+                 "<a href=\"/setup\" method=\"get\">Настройки</a>\r\n"
+                 "<h2>Информация с датчиков Co2, PM2.5 и Температура-влажность-давление</h2>\r\n"
+                 "<table><tr class=city>\r\n"
+                 "<th width=" + String("40%") + ">Датчик</th>\r\n"
+                 "<th width=" + String("70%") + ">Значение</th>\r\n"
+                 "</tr><tr><td>CO2</td><td class='colorCo2'>" + Co2 + "</td>\r\n"
+                 "</tr><tr><td>PM2.5</td><td class='value'>" + PM2_5 + "</td>\r\n"
+                 "</tr><tr><td>PM10</td><td class='value'>" + PM10 + "</td>\r\n"
+                 "</tr><tr><td>Температура устройства</td><td class='value'>" + Temp + "</td>\r\n"
+                 "</tr><tr><td>Влажность устройства</td><td class='value'>" + Hum + "</td>\r\n"
+                 "</tr><tr><td>Атмосферное давление</td><td class='value'>" + Pres + "</td>\r\n"
+                 "</tr></table>\r\n" + standartStrHtmlEnd;
+
+    _server.send(200, "text/html", file1);
 }
 
 void handleNotFound()
 {
   _server.sendHeader("Location", "/", true);
   _server.send(302, "text/plane", "File Not Find\n\n");
-}
-
-void loop() {
-
-  if (indDelayWork <= 200000)
-  {
-    indDelayWork++;
-  } else
-  {
-    indDelaySecs++;
-    indDelayWork = 0;
-    Serial.println("indDelayWork: " + String(indDelaySecs));
-  }
-
-  if (my_sds_onoff && indDelaySecs == 45)
-  {
-    my_sds.wakeup();
-  }
-
-
-  if (indDelaySecs == 60)
-  {
-    //showEEPROM();
-    my_sds_onoff = true;
-    indDelaySecs = 0;
-    error = my_sds.read(&p25, &p10);
-    if (! error) {
-      Serial.println("P2.5: " + String(p25));
-      Serial.println("P10:  " + String(p10));
-      PM2_5 = p25;
-      PM2_5 = p10;
-    } else
-    {
-      Serial.println("P2.5: error");
-      p25 = 0;
-      p10 = 0;
-    }
-
-    my_sds.sleep();
-
-    long tt = millis();
-
-    //CO2 via pwm
-    do
-    {
-      th = pulseIn(pwmPin, HIGH, 1004000) / 1000;
-      tl = 1004 - th;
-      //ppm2 = 2000 * (th-2)/(th+tl-4);
-      ppm = 5000 * (th - 2) / (th + tl - 4);
-      ppm = constrain(ppm, 350, 5000);
-    } while (th == 0);
-    Serial.println("Co2:" + String(ppm));
-    Co2 = ppm;
-
-
-    // If update time has reached 15 seconds, then update the jsonBuffer
-
-    updatesJson(jsonBuffer);
-  }
 }
 
 // Updates the jsonBuffer with data
