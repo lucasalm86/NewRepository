@@ -67,7 +67,7 @@ void setup() {
 
   Serial.begin(115200);
 
-  standartStr();
+
   modeAP_RP_global = "AP";//EEPROM_ESP8266_READ(192, 224);
 
 
@@ -93,7 +93,7 @@ void setup() {
       Serial.println("MDNS responder started");
     }
 
-    _server.on("/", handleRoot);
+    _server.on("/", _handleRoot);
 
     _server.begin();
     Serial.println("HTTP server started");
@@ -118,12 +118,16 @@ void setup() {
     Serial.print("AP IP address: ");
     Serial.println(myIP);
 
-    _server.on("/", handleRoot);
-    _server.on("/changeSsidPage", changeApSsid);
+    _server.on("/", _handleRoot);
     _server.begin();
     Serial.println("HTTP server started");
     //launchWeb(1);
   }
+}
+
+void handleRoot() {
+  Serial.print("Запрос... ");
+  _server.send(200, "text/plain", "hello from esp8266!");
 }
 
 void loop() {
@@ -265,13 +269,13 @@ void createWebServer(int webtype)
     //server.on("/cleareeprom", clearEeprom);
     //server.on("/getIP_RPPage", getIP_RPPage);
 
-    _server.on("/changeSsidPage", changeApSsid);
+    //server.on("/changeSsidPage", changeApSsid);
 
     //server.on("/setup", setupESP);
     //server.on("/adminAsk", adminAsk);
     //server.on("/logPassCorrect", logPassCorrect);
     //server.on("/ask_for_changeAP_RP_mode", ask_for_changeAP_RP_mode);
-    //server.on("/save_changesAP_RP_mode_save", save_changesAP_RP_mode_save);
+    //server.on("/save_changesAP_RP_mode_save", save_changesAP_RP_mode_save);m
     //server.on("/changeAdminPage", ask_for_AdminPass_change);
     //server.on("/adminlogPassCorrect", adminlogPassCorrect);
   } else if (webtype == 0) {
@@ -283,77 +287,7 @@ void createWebServer(int webtype)
   }
 }
 
-void standartStr()
-{
-  standartStrHtml =
-    "<!doctype html><html><head>\r\n"
-    "<style>.ssids{color:black;padding:5px;border-radius:0.5rem;background-color:#C0C0C0;line-height:1.4rem;font-size:1.2rem;width:25%;}\r\n"
-    ".button{text-decoration:none;text-align:center;padding:11px 32px;border:solid 1px #004f72;-webkit-border-radius:4px;-moz-border-radius:4px;border-radius:4px;font:18px Arial,Helvetica,sans-serif;font-weight:bold;color:#e5ffff;background-color:#3ba4c7;background-image:-moz-linear-gradient(top,#3BA4C7 0,#1982A5 100%);background-image:-webkit-linear-gradient(top,#3BA4C7 0,#1982A5 100%);background-image:-o-linear-gradient(top,#3BA4C7 0,#1982A5 100%);background-image:-ms-linear-gradient(top,#3BA4C7 0,#1982A5 100%);filter:progid:DXImageTransform.Microsoft.gradient(startColorstr='#1982A5',endColorstr='#1982A5',GradientType=0);background-image:linear-gradient(top,#3BA4C7 0,#1982A5 100%);-webkit-box-shadow:0 0 2px #bababa,inset 0 0 1px #fff;-moz-box-shadow:0 0 2px #bababa,inset 0 0 1px #fff;box-shadow:0 0 2px #bababa,inset 0 0 1px #fffwidth:40%;}\r\n"
-    ".button2{color:white;padding:10px;border:0;border-radius:0.5rem;background-color:#1fa3ec;color:#fff;line-height:2.4rem;font-size:1.2rem;width:30%;}</style>\r\n"
-    "<meta http-equiv=Content-type content=\"text/html;charset=utf-8\"/>\r\n"
-    "<title>AirDeviceTester page</title></head><body><a href=\"/\">Главная</a><a class=button2 href=\"/setup\" method=\"get\">Настройки</a><br><br>\r\n";
-
-  standartStrHtmlEnd =
-    "</form></body></html>\r\n";
-}
-
-bool testWifi(void) {
-  int c = 0;
-  Serial.println("Check for WiFi connected...");
-  while ( c < 10 ) {
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.println("Connected to WiFi network - " + EEPROM_ESP8266_READ(64, 96));
-      return true;
-    }
-    delay(1000);
-    //Serial.print(WiFi.status());
-    c++;
-  }
-  Serial.println("");
-  Serial.println("Подключение RP неустановлено.");
-  return false;
-}
-
-void setupESP()
-{
-  globalRP_IP = "Nan";
-  globalIP_status_Connection = false;
-  String modeString;
-  (modeAP_RP_global == "Station" && testWifi()) ? modeString = "<input class=button onClick='location.href=\"getIP_RPPage\"' method=\"get\" type=submit class=button2 margin-left=10 value=\"Получить IP >>\">\r\n" : modeString = "";
-
-  String setupHtml = standartStrHtml +
-                     "<div class=flex><div class>\r\n"
-                     "<input onClick='location.href=\"changeSsidPage\"' method=\"get\" type=submit class=button value=\"Смена точки доступа WiFi\"><p><p/>\r\n"
-                     "<input onClick='location.href=\"ask_for_changeAP_RP_mode\"' method=\"get\" type=submit class=button value=\"Смена режима WiFi устройства\" >\r\n" + modeString + "<p><p/>\r\n"
-                     "<input onClick='location.href=\"changeAdminPage\"' method=\"get\" type=submit class=button value=\"Смена пароля администратора\"></div></div>\r\n" + standartStrHtmlEnd;
-  passwordChanged = "0";
-
-  //modeAP_RP_global
-
-  _server.send(200, "text/html", setupHtml);
-}
-
-void changeApSsid()
-{
-  setupAP(false);
-
-  String settingsHtml = standartStrHtml +
-                        "<h2>Выберите точку доступа из списка (просто кликните по ней):</h2>\r\n";
-
-  content = "";
-
-  //IPAddress ip = WiFi.softAPIP();
-  //String ipStr = String(ip[0]) + '.' + String(ip[1]) + '.' + String(ip[2]) + '.' + String(ip[3]);
-  content += settingsHtml;
-  content += "<p>";
-  content += st;
-  content += "</p><form method='get' action='adminAsk'><input id='ssid' name='ssid' length=32 placeholder='Имя точки доступа'><input name='pass' length=64 placeholder='Пароль'><input type='submit'></form>";
-  content += "<script> function myfunction(ctrl){document.getElementById(\"ssid\").value = ctrl.getElementsByTagName('a')[0].innerHTML;}</script>";
-  content += "</body></html>";
-  _server.send(200, "text/html", content);
-}
-
-void handleRoot()
+void _handleRoot()
 {
   Serial.print("Показываю окно в браузере...");
   
@@ -376,7 +310,6 @@ void handleRoot()
     Co2_text_color = "white";
     }
     Serial.print(Co2_status);
-    /**
     String file1 =
     "<!DOCTYPE html>\r\n"
     "<html>\r\n"
@@ -417,25 +350,7 @@ void handleRoot()
     "</tr>\r\n"
     "</table>\r\n"
     "</body>\r\n"
-    "</html>\r\n";**/
-
-    String file1 = "<!DOCTYPE html><html><head>\r\n"
-                 "<style>.city{background-color:DarkGreen;color:white}.colorCo2{background-color:" +
-                 Co2_status + ";color:" + Co2_text_color + "}.button{color:white;padding:10px;border:0;border-radius:0.5rem;background-color:#1fa3ec;color:#fff;line-height:2.4rem;font-size:1.2rem;width:30%;}table{font-family:arial,sans-serif;border-collapse:collapse;width:60%}td,th{border:2px solid #ddd;text-align:center;padding:15px}tr:nth-child(even){background-color:#ddd}</style>\r\n"
-                 "<meta http-equiv=Content-type content=\"text/html; charset=utf-8\" />\r\n"
-                 "</head><body><a class=button>Главная</a>\r\n"
-                 "<a href=\"/setup\" method=\"get\">Настройки</a>\r\n"
-                 "<h2>Информация с датчиков Co2, PM2.5 и Температура-влажность-давление</h2>\r\n"
-                 "<table><tr class=city>\r\n"
-                 "<th width=" + String("40%") + ">Датчик</th>\r\n"
-                 "<th width=" + String("70%") + ">Значение</th>\r\n"
-                 "</tr><tr><td>CO2</td><td class='colorCo2'>" + Co2 + "</td>\r\n"
-                 "</tr><tr><td>PM2.5</td><td class='value'>" + PM2_5 + "</td>\r\n"
-                 "</tr><tr><td>PM10</td><td class='value'>" + PM10 + "</td>\r\n"
-                 "</tr><tr><td>Температура устройства</td><td class='value'>" + Temp + "</td>\r\n"
-                 "</tr><tr><td>Влажность устройства</td><td class='value'>" + Hum + "</td>\r\n"
-                 "</tr><tr><td>Атмосферное давление</td><td class='value'>" + Pres + "</td>\r\n"
-                 "</tr></table>\r\n" + standartStrHtmlEnd;
+    "</html>\r\n";
 
     _server.send(200, "text/html", file1);
 }
